@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pixel Rain</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; overflow: hidden; font-family: 'Segoe UI', system-ui, sans-serif; }
+  canvas { display: block; }
+  
+  .controls {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 24px;
+    z-index: 10;
+    min-width: 260px;
+    color: #e0e0e0;
+    transition: opacity 0.3s, transform 0.3s;
+  }
+  
+  .controls.collapsed {
+    padding: 12px 16px;
+    min-width: auto;
+    cursor: pointer;
+  }
+  
+  .controls.collapsed .ctrl-body { display: none; }
+  
+  .controls h2 {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: #888;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
+  }
+  
+  .controls h2 .toggle {
+    font-size: 18px;
+    color: #555;
+    transition: transform 0.3s;
+  }
+  
+  .controls.collapsed h2 {
+    margin-bottom: 0;
+    color: #666;
+  }
+  
+  .controls.collapsed h2 .toggle {
+    transform: rotate(180deg);
+  }
+  
+  .ctrl-group {
+    margin-bottom: 18px;
+  }
+  
+  .ctrl-group label {
+    display: block;
+    font-size: 12px;
+    color: #777;
+    margin-bottom: 8px;
+    font-weight: 500;
+  }
+  
+  .ctrl-group input[type="range"] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 4px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    outline: none;
+  }
+  
+  .ctrl-group input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    cursor: pointer;
+    box-shadow: 0 0 8px rgba(255,255,255,0.3);
+  }
+  
+  .btn-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  
+  .btn {
+    padding: 6px 14px;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.05);
+    color: #ccc;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: inherit;
+  }
+  
+  .btn:hover { background: rgba(255,255,255,0.1); }
+  .btn.active { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.3); color: #fff; }
+  
+  .val {
+    float: right;
+    color: #555;
+    font-variant-numeric: tabular-nums;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<div class="controls" id="panel">
+  <h2 onclick="togglePanel()">
+    PIXEL RAIN
+    <span class="toggle">▾</span>
+  </h2>
+  <div class="ctrl-body">
+    <div class="ctrl-group">
+      <label>Speed <span class="val" id="speedVal">50</span></label>
+      <input type="range" id="speed" min="10" max="120" value="50">
+    </div>
+    <div class="ctrl-group">
+      <label>Font Size <span class="val" id="sizeVal">16</span></label>
+      <input type="range" id="fontSize" min="8" max="32" value="16">
+    </div>
+    <div class="ctrl-group">
+      <label>Density <span class="val" id="densityVal">50</span></label>
+      <input type="range" id="density" min="10" max="100" value="50">
+    </div>
+    <div class="ctrl-group">
+      <label>Theme</label>
+      <div class="btn-group" id="themeGroup">
+        <button class="btn active" data-theme="green">Green</button>
+        <button class="btn" data-theme="blue">Blue</button>
+        <button class="btn" data-theme="red">Red</button>
+        <button class="btn" data-theme="purple">Purple</button>
+        <button class="btn" data-theme="rainbow">Rainbow</button>
+      </div>
+    </div>
+    <div class="ctrl-group">
+      <label>Characters</label>
+      <div class="btn-group" id="charGroup">
+        <button class="btn active" data-chars="katakana">カタカナ</button>
+        <button class="btn" data-chars="binary">Binary</button>
+        <button class="btn" data-chars="hex">Hex</button>
+        <button class="btn" data-chars="alpha">ABC</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+let W, H, columns, drops;
+let speed = 50;
+let fontSize = 16;
+let densityPct = 50;
+let theme = 'green';
+let charSet = 'katakana';
+
+const charSets = {
+  katakana: 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン',
+  binary: '01',
+  hex: '0123456789ABCDEF',
+  alpha: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+};
+
+const themes = {
+  green:  (i, len) => `hsl(120, 100%, ${40 + Math.random() * 20}%)`,
+  blue:   (i, len) => `hsl(210, 100%, ${40 + Math.random() * 20}%)`,
+  red:    (i, len) => `hsl(0, 100%, ${40 + Math.random() * 20}%)`,
+  purple: (i, len) => `hsl(280, 100%, ${40 + Math.random() * 20}%)`,
+  rainbow:(i, len) => `hsl(${(Date.now() / 20 + i * 10) % 360}, 100%, 50%)`
+};
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  initDrops();
+}
+
+function initDrops() {
+  columns = Math.floor(W / fontSize);
+  drops = new Array(columns).fill(0).map(() => ({
+    y: Math.random() * -100,
+    speed: 0.3 + Math.random() * 0.7,
+    chars: []
+  }));
+}
+
+function getChar() {
+  const set = charSets[charSet];
+  return set[Math.floor(Math.random() * set.length)];
+}
+
+function draw() {
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.font = `${fontSize}px monospace`;
+
+  const activeCols = Math.floor(columns * (densityPct / 100));
+
+  for (let i = 0; i < columns; i++) {
+    if (i >= activeCols) continue;
+    
+    const drop = drops[i];
+    const x = i * fontSize;
+    const y = drop.y * fontSize;
+
+    // Lead character - bright white/near-white
+    const leadChar = getChar();
+    ctx.fillStyle = '#fff';
+    ctx.shadowColor = themes[theme](i, columns);
+    ctx.shadowBlur = 15;
+    ctx.fillText(leadChar, x, y);
+    ctx.shadowBlur = 0;
+
+    // Trail characters
+    const trailLen = 15 + Math.floor(Math.random() * 10);
+    for (let j = 1; j < trailLen; j++) {
+      const ty = y - j * fontSize;
+      if (ty < 0) break;
+      const alpha = 1 - (j / trailLen);
+      const color = themes[theme](i, columns);
+      ctx.globalAlpha = alpha * 0.8;
+      ctx.fillStyle = color;
+      if (Math.random() < 0.02) {
+        ctx.fillText(getChar(), x, ty);
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    drop.y += drop.speed;
+
+    if (drop.y * fontSize > H && Math.random() > 0.975) {
+      drop.y = Math.random() * -20;
+      drop.speed = 0.3 + Math.random() * 0.7;
+    }
+  }
+}
+
+function togglePanel() {
+  document.getElementById('panel').classList.toggle('collapsed');
+}
+
+// Controls
+document.getElementById('speed').addEventListener('input', e => {
+  speed = +e.target.value;
+  document.getElementById('speedVal').textContent = speed;
+});
+
+document.getElementById('fontSize').addEventListener('input', e => {
+  fontSize = +e.target.value;
+  document.getElementById('sizeVal').textContent = fontSize;
+  initDrops();
+});
+
+document.getElementById('density').addEventListener('input', e => {
+  densityPct = +e.target.value;
+  document.getElementById('densityVal').textContent = densityPct;
+});
+
+document.querySelectorAll('#themeGroup .btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#themeGroup .btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    theme = btn.dataset.theme;
+  });
+});
+
+document.querySelectorAll('#charGroup .btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#charGroup .btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    charSet = btn.dataset.chars;
+  });
+});
+
+window.addEventListener('resize', resize);
+resize();
+
+function loop() {
+  draw();
+  setTimeout(() => requestAnimationFrame(loop), Math.max(10, 130 - speed));
+}
+loop();
+</script>
+</body>
+</html>
